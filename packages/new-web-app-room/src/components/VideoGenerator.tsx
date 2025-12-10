@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 
 interface VideoGeneratorProps {
   lyrics?: string;
+  audioFile?: File;
   settings: {
     style: string;
     animation: string;
@@ -14,12 +15,20 @@ interface VideoGeneratorProps {
     showWaveform: boolean;
   };
   onComplete: () => void;
+  onVideoReady?: (blob: Blob) => void;
 }
 
-export default function VideoGenerator({ lyrics, settings, onComplete }: VideoGeneratorProps) {
+export default function VideoGenerator({ lyrics, audioFile, settings, onComplete, onVideoReady }: VideoGeneratorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const [currentLine, setCurrentLine] = useState(0);
   const [isGenerating, setIsGenerating] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioFrequencyData, setAudioFrequencyData] = useState<Uint8Array>(new Uint8Array(128));
   const lines = useMemo(() => lyrics?.split('\n').filter(line => line.trim()) || ['Sample Text'], [lyrics]);
 
   useEffect(() => {
@@ -32,6 +41,32 @@ export default function VideoGenerator({ lyrics, settings, onComplete }: VideoGe
     // Set canvas size
     canvas.width = 1920;
     canvas.height = 1080;
+
+    // Start recording
+    const stream = canvas.captureStream(30); // 30 FPS
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'video/webm;codecs=vp9',
+      videoBitsPerSecond: 5000000, // 5 Mbps for high quality
+    });
+
+    mediaRecorderRef.current = mediaRecorder;
+    chunksRef.current = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunksRef.current.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+      if (onVideoReady) {
+        onVideoReady(blob);
+      }
+    };
+
+    mediaRecorder.start();
+    setIsRecording(true);
 
     let animationFrame: number;
     let lineIndex = 0;
@@ -163,17 +198,24 @@ export default function VideoGenerator({ lyrics, settings, onComplete }: VideoGe
 
     animate();
 
-    // Auto-complete after 10 seconds for demo
+    // Auto-complete after cycling through all lines (3 seconds per line)
     const timeout = setTimeout(() => {
       setIsGenerating(false);
+      setIsRecording(false);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
       onComplete();
-    }, 10000);
+    }, lines.length * 3000); // 3 seconds per line
 
     return () => {
       cancelAnimationFrame(animationFrame);
       clearTimeout(timeout);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
     };
-  }, [lines, settings, onComplete]);
+  }, [lines, settings, onComplete, onVideoReady]);
 
   return (
     <div className="relative">
@@ -184,17 +226,31 @@ export default function VideoGenerator({ lyrics, settings, onComplete }: VideoGe
       />
       {isGenerating && (
         <div className="absolute bottom-4 left-4 right-4 bg-black/50 backdrop-blur-sm rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            <span className="text-sm">
-              Generating... Line {currentLine + 1} of {lines.length}
-            </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span className="text-sm">
+                Generating... Line {currentLine + 1} of {lines.length}
+              </span>
+            </div>
+            {isRecording && (
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                <span className="text-xs text-red-400">REC</span>
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 }
+
+
+
+
+
+
 
 
 

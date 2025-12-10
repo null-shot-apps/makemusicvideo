@@ -10,6 +10,7 @@ export default function GeneratePage() {
   const [settings, setSettings] = useState<any>(null);
   const [isComplete, setIsComplete] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
 
   useEffect(() => {
     const data = sessionStorage.getItem('videoSettings');
@@ -36,13 +37,30 @@ export default function GeneratePage() {
   }, [isComplete]);
 
   const handleDownload = () => {
-    // In a real implementation, this would download the actual video
-    alert('Video download would start here! In production, this would export the canvas animation as an MP4 file.');
+    if (!videoBlob) {
+      alert('Video is still processing. Please wait...');
+      return;
+    }
+
+    // Create download link
+    const url = URL.createObjectURL(videoBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${settings.name || 'music-video'}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleRegenerate = () => {
     setIsComplete(false);
     setProgress(0);
+    setVideoBlob(null);
+  };
+
+  const handleVideoReady = (blob: Blob) => {
+    setVideoBlob(blob);
   };
 
   if (!settings) {
@@ -103,6 +121,7 @@ export default function GeneratePage() {
             lyrics={settings.content}
             settings={settings}
             onComplete={() => setIsComplete(true)}
+            onVideoReady={handleVideoReady}
           />
         </div>
 
@@ -226,4 +245,8 @@ export default function GeneratePage() {
     </div>
   );
 }
+
+
+
+
 
